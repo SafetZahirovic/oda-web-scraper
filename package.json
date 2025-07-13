@@ -27,5 +27,5 @@
   },
   "author": "",
   "license": "ISC",
-  "description": "A simple web scraper built with Playwright and TypeScript"
+  "description": "A robust web scraper using Playwright and TypeScript with worker threads and event-driven database connector"
 }

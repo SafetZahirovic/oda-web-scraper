@@ -35,6 +35,23 @@ const URLS = [
     "https://oda.com/no/categories/1044-frokostblandinger-og-musli/",
 ];
 
+
+
+const databaseConnector = createDatabaseConnector({
+    handleAllScrapingFinished: async (event) => {
+        console.log(`All scraping finished. Total URLs: ${event.totalUrls}, Successful: ${event.successfulUrls}, Products: ${event.totalProducts}`);
+    },
+    handleCategoryScrapingFinished: async (event) => {
+        console.log(`Category scraping finished for ${event.url} (${event.url}). Total products: ${event.totalProducts}, Success: ${event.success}`);
+        if (!event.success && event.error) {
+            console.error(`Error: ${event.error}`);
+        }
+    },
+    handleItemScrapingFinished: async (event) => {
+        console.log(`Item scraping finished for ${event.url} (${event.category}). Products: ${event.products.length}`);
+    }
+})
+
 interface WorkerResult {
     success: boolean;
     products?: ProductData[];
@@ -52,7 +69,7 @@ function createWorker(url: string, urlIndex: number): Promise<WorkerResult> {
                 url,
                 urlIndex,
                 totalUrls: URLS.length,
-                browserConfig: BROWSER_CONFIG
+                browserConfig: BROWSER_CONFIG,
             }
         });
 
@@ -74,7 +91,9 @@ function createWorker(url: string, urlIndex: number): Promise<WorkerResult> {
 
 async function main() {
     try {
-        console.log(`� Starting ${URLS.length} workers for parallel scraping...`);
+        // Connect to database
+        await databaseConnector.connect();
+
         console.log(`🚀 Starting ${URLS.length} workers for parallel scraping...`);
 
         // Create workers for each URL
@@ -101,8 +120,10 @@ async function main() {
                     totalProducts += products.length;
 
                     // Emit category scraping finished event with products data
+                    databaseConnector.emitCategoryScrapingFinished(url, urlIndex, products, true);
                 } else {
                     console.log(`\n⚠️ Worker ${urlIndex + 1}: No products collected`);
+                    databaseConnector.emitCategoryScrapingFinished(url, urlIndex, [], true);
                 }
             } else {
                 const urlIndex = i;
@@ -111,6 +132,7 @@ async function main() {
                     : String(result.reason);
 
                 console.error(`❌ Worker ${urlIndex + 1}: Failed - ${errorMessage}`);
+                databaseConnector.emitCategoryScrapingFinished(url, urlIndex, [], false, errorMessage);
             }
         }
 
@@ -121,9 +143,13 @@ async function main() {
         console.log(`📦 Total products collected: ${totalProducts}`);
 
         // Emit all scraping finished event
+        databaseConnector.emitAllScrapingFinished(URLS.length, successfulWorkers, totalProducts);
 
     } catch (error) {
         console.error("❌ Error occurred:", error);
+    } finally {
+        // Disconnect from database
+        await databaseConnector.disconnect();
     }
 }
 

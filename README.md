@@ -5,9 +5,11 @@ A robust, scalable TypeScript-based web scraper using Playwright to extract prod
 ## Features
 
 - ✅ **Worker Thread Parallelization**: Each URL is processed in its own worker thread for maximum performance
+- ✅ **Database Connector**: Event-driven bridge between scraping and database operations
+- ✅ **Real-time Processing**: Category-level events for immediate data processing
 - ✅ **Atomic & Testable**: Clean, dependency-injected functions
 - ✅ **Comprehensive Scraping**: Handles pagination with "load more" buttons
-- ✅ **Data Export**: Exports to both JSON and CSV formats (Supabase-ready flat structure)
+- ✅ **Event-Driven Architecture**: Publish-subscribe pattern for data flow
 - ✅ **Error Handling**: Robust error handling for failed category scrapes
 - ✅ **Unit Testing**: Full test coverage with Vitest
 - ✅ **TypeScript**: Fully typed for better development experience
@@ -63,25 +65,34 @@ npm run test:watch
 
 The scraper will:
 
-1. **Spawn Workers**: Create one worker thread per URL for parallel processing
-2. **Per Worker Process**:
+1. **Connect to Database**: Initialize database connector with event handlers
+2. **Spawn Workers**: Create one worker thread per URL for parallel processing
+3. **Per Worker Process**:
    - Navigate to the main category page
    - Find all subcategory buttons (excluding "Alle")
    - For each subcategory:
      - Open the subcategory page
      - Handle pagination by clicking "load more" buttons
      - Extract product data from all product tiles
-3. **Collect Results**: Main thread collects results from all workers
-4. **Export Data**: Each URL's data is exported to separate files:
-   - `oda-products-{category-id}.json` (structured JSON)
-   - `oda-products-{category-id}.csv` (flat CSV for analysis)
+     - **Emit category events** for real-time processing
+4. **Collect Results**: Main thread collects results from all workers
+5. **Process Data**: Database connector handles data through event system
 
-### Performance Benefits
+### Event Flow
 
-- **Parallel Processing**: All URLs are processed simultaneously
-- **Isolated Browser Instances**: No resource conflicts between categories
-- **Scalable**: Easily add more URLs to the `URLS` array
-- **Faster Completion**: Total time is limited by the slowest URL, not the sum of all URLs
+- **`url_started`**: When a worker begins processing a URL
+- **`category_scraped`**: When individual categories are completed (real-time)
+- **`url_completed`**: When a complete URL's data is ready
+- **`scraping_finished`**: When all URLs are processed
+
+### Database Integration
+
+Instead of file exports, the system now uses:
+
+- **Event-driven data processing**
+- **Real-time category completion callbacks**
+- **Configurable database handlers**
+- **Automatic connection management**
 
 ## Project Structure
 
@@ -89,24 +100,24 @@ The scraper will:
 src/
 ├── index.ts           # Main orchestrator script (spawns workers)
 ├── worker.ts          # Worker script for parallel URL processing
+├── connector.ts       # Database connector with event-driven architecture
 ├── browser.ts         # Browser management and page navigation
 ├── scraper.ts         # Core scraping functions
 ├── utils.ts           # Pure utility functions
 ├── types.ts           # TypeScript interfaces
-├── export.ts          # Data export utilities
 └── __tests__/         # Unit tests
     ├── scraper.test.ts
     └── utils.test.ts
 ```
 
-## Worker Thread Architecture
+## Database Connector Architecture
 
-The scraper uses **Node.js Worker Threads** for maximum performance:
+The new **Database Connector** provides an event-driven bridge between web scraping and database operations:
 
-- **Main Thread (`index.ts`)**: Orchestrates workers and collects results
-- **Worker Threads (`worker.ts`)**: Each URL gets its own worker with isolated browser instance
-- **Parallel Processing**: Multiple URLs are scraped simultaneously
-- **Resource Isolation**: Each worker has its own browser to avoid conflicts
+- **Event-Driven**: Uses Node.js EventEmitter for publish-subscribe pattern
+- **Real-time Processing**: Category-level events as data is scraped
+- **Database Abstraction**: Clean separation between scraping logic and data persistence
+- **Configurable Handlers**: Easily customize how data is processed and stored
 
 ## Architecture
 
