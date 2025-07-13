@@ -40,7 +40,8 @@ export async function extractSubcategoryLinks(
  */
 export async function extractProductData(
     navigator: PageNavigator,
-    selector: string = 'article[data-testid="product-tile"]'
+    selector: string = 'article[data-testid="product-tile"]',
+    category: string = ''
 ): Promise<ProductData[]> {
     const productTiles = await navigator.locator(selector).all();
     const products: ProductData[] = [];
@@ -70,6 +71,7 @@ export async function extractProductData(
                     description: description,
                     pricePerKilo: pricePerKiloOrDiscount.includes('kr') ? pricePerKiloOrDiscount : null,
                     discount: pricePerKiloOrDiscount.includes('kr') ? null : pricePerKiloOrDiscount,
+                    category: category
                 });
             }
         } catch (error) {
@@ -115,7 +117,8 @@ export async function loadMoreProducts(
 export async function scrapeAllProductsFromPage(
     navigator: PageNavigator,
     url: string,
-    maxPages: number = 10
+    maxPages: number = 10,
+    category: string = ''
 ): Promise<ProductData[]> {
     await navigator.goto(url);
     await navigator.waitForTimeout(2000);
@@ -127,7 +130,7 @@ export async function scrapeAllProductsFromPage(
         console.log(`   📦 Loading page ${currentPage}...`);
 
         // Extract products from current page
-        const products = await extractProductData(navigator);
+        const products = await extractProductData(navigator, 'article[data-testid="product-tile"]', category);
         allProducts.push(...products);
 
         console.log(`   ✅ Found ${products.length} products (total: ${allProducts.length})`);

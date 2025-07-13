@@ -5,7 +5,7 @@ import { ProductData } from './types.js';
  * Exports product data to JSON file
  */
 export async function exportToJSON(
-    data: { category: string; products: ProductData[] }[],
+    data: ProductData[],
     filename: string = 'scraped-products'
 ): Promise<string> {
     try {
@@ -30,7 +30,7 @@ export async function exportToJSON(
  * Exports product data to CSV file (flattened)
  */
 export async function exportToCSV(
-    data: { category: string; products: ProductData[] }[],
+    data: ProductData[],
     filename: string = 'scraped-products'
 ): Promise<string> {
     try {
@@ -40,23 +40,15 @@ export async function exportToCSV(
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const filePath = `data/${filename}_${timestamp}.csv`;
 
-        // Flatten data for CSV
-        const flatData: (ProductData & { category: string })[] = [];
-        data.forEach(categoryData => {
-            categoryData.products.forEach(product => {
-                flatData.push({
-                    category: categoryData.category,
-                    ...product
-                });
-            });
-        });
+        // Data is already flat
+        const flatData = data;
 
         if (flatData.length === 0) {
             throw new Error('No data to export');
         }
 
         // Create CSV content
-        const headers = ['category', 'name', 'description', 'price', 'pricePerKilo', 'brand', 'link', 'image'];
+        const headers = ['category', 'name', 'description', 'price', 'pricePerKilo', 'discount', 'brand', 'link', 'image'];
         const csvContent = [
             headers.join(','),
             ...flatData.map(row =>

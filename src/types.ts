@@ -28,4 +28,5 @@ export interface ProductData {
     description: string | null;
     pricePerKilo: string | null;
     discount: string | null;
+    category: string;
 }

@@ -72,26 +72,23 @@ describe('extractSubcategoryLinks', () => {
 });
 
 describe('extractProductData', () => {
-    it('should extract product data from tiles using structured selectors', async () => {
+    it('should extract product data from p and span elements', async () => {
         const mockNavigator = createMockPageNavigator();
 
         const mockTile = {
             locator: vi.fn().mockImplementation((selector) => {
-                if (selector.includes('h3') || selector.includes('title') || selector.includes('name')) {
+                if (selector === 'p') {
                     return {
-                        first: vi.fn().mockReturnValue({
-                            textContent: vi.fn().mockResolvedValue('Test Product')
-                        })
+                        allInnerTexts: vi.fn().mockResolvedValue([
+                            'Test Product',
+                            'Organic Brand',
+                            'kr 10,90'
+                        ])
                     };
                 }
-                if (selector.includes('price') || selector.includes('kr')) {
+                if (selector === 'span') {
                     return {
-                        allTextContents: vi.fn().mockResolvedValue(['kr 10,90', 'kr 2,50 /kg'])
-                    };
-                }
-                if (selector.includes('brand') || selector === 'span, p') {
-                    return {
-                        allTextContents: vi.fn().mockResolvedValue(['Organic Brand', 'Test Product'])
+                        allInnerTexts: vi.fn().mockResolvedValue(['kr 2,50 /kg'])
                     };
                 }
                 if (selector === 'a') {
@@ -109,8 +106,8 @@ describe('extractProductData', () => {
                     };
                 }
                 return {
-                    first: vi.fn().mockReturnValue({ textContent: vi.fn().mockResolvedValue(null) }),
-                    allTextContents: vi.fn().mockResolvedValue([])
+                    first: vi.fn().mockReturnValue({ getAttribute: vi.fn().mockResolvedValue(null) }),
+                    allInnerTexts: vi.fn().mockResolvedValue([])
                 };
             })
         };
@@ -119,7 +116,7 @@ describe('extractProductData', () => {
             all: vi.fn().mockResolvedValue([mockTile])
         });
 
-        const result = await extractProductData(mockNavigator);
+        const result = await extractProductData(mockNavigator, 'article[data-testid="product-tile"]', 'Test Category');
 
         expect(result).toEqual([
             {
@@ -129,7 +126,9 @@ describe('extractProductData', () => {
                 link: 'https://oda.com/product/123',
                 image: '/image.jpg',
                 description: 'Organic Brand',
-                pricePerKilo: 'kr 2,50 /kg'
+                pricePerKilo: 'kr 2,50 /kg',
+                discount: null,
+                category: 'Test Category'
             }
         ]);
     });
@@ -140,10 +139,9 @@ describe('extractProductData', () => {
         const mockTile = {
             locator: vi.fn().mockImplementation(() => ({
                 first: vi.fn().mockReturnValue({
-                    textContent: vi.fn().mockResolvedValue(null),
                     getAttribute: vi.fn().mockResolvedValue(null)
                 }),
-                allTextContents: vi.fn().mockResolvedValue([])
+                allInnerTexts: vi.fn().mockResolvedValue([])
             }))
         };
 
@@ -154,6 +152,67 @@ describe('extractProductData', () => {
         const result = await extractProductData(mockNavigator);
 
         expect(result).toEqual([]);
+    });
+
+    it('should handle discount in span elements', async () => {
+        const mockNavigator = createMockPageNavigator();
+
+        const mockTile = {
+            locator: vi.fn().mockImplementation((selector) => {
+                if (selector === 'p') {
+                    return {
+                        allInnerTexts: vi.fn().mockResolvedValue([
+                            'Test Product on Sale',
+                            'Premium Brand',
+                            'kr 8,90'
+                        ])
+                    };
+                }
+                if (selector === 'span') {
+                    return {
+                        allInnerTexts: vi.fn().mockResolvedValue(['20% off'])
+                    };
+                }
+                if (selector === 'a') {
+                    return {
+                        first: vi.fn().mockReturnValue({
+                            getAttribute: vi.fn().mockResolvedValue('/product/456')
+                        })
+                    };
+                }
+                if (selector === 'img') {
+                    return {
+                        first: vi.fn().mockReturnValue({
+                            getAttribute: vi.fn().mockResolvedValue('/sale-image.jpg')
+                        })
+                    };
+                }
+                return {
+                    first: vi.fn().mockReturnValue({ getAttribute: vi.fn().mockResolvedValue(null) }),
+                    allInnerTexts: vi.fn().mockResolvedValue([])
+                };
+            })
+        };
+
+        mockNavigator.locator = vi.fn().mockReturnValue({
+            all: vi.fn().mockResolvedValue([mockTile])
+        });
+
+        const result = await extractProductData(mockNavigator, 'article[data-testid="product-tile"]', 'Sale Category');
+
+        expect(result).toEqual([
+            {
+                name: 'Test Product on Sale',
+                price: 'kr 8,90',
+                brand: 'Premium Brand',
+                link: 'https://oda.com/product/456',
+                image: '/sale-image.jpg',
+                description: 'Premium Brand',
+                pricePerKilo: null,
+                discount: '20% off',
+                category: 'Sale Category'
+            }
+        ]);
     });
 });
 

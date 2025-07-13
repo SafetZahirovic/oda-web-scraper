@@ -40,7 +40,7 @@ async function main() {
         });
 
         // Scrape products from each subcategory page
-        const allProductData: { category: string; products: ProductData[] }[] = [];
+        const allProducts: ProductData[] = [];
 
         for (let i = 0; i < subcategoryLinks.length; i++) {
             const link = subcategoryLinks[i];
@@ -49,27 +49,30 @@ async function main() {
 
             try {
                 // Scrape all products from this category (with pagination)
-                const products = await scrapeAllProductsFromPage(navigator, link.href, 5); // Max 5 pages per category
+                const products = await scrapeAllProductsFromPage(navigator, link.href, 5, link.text); // Max 5 pages per category
 
-                allProductData.push({
-                    category: link.text,
-                    products
-                });
+                // Add category to each product for flat structure (redundant now since scraper handles it)
+                allProducts.push(...products);
 
                 console.log(`   ✅ Scraped ${products.length} products from ${link.text}`);
 
             } catch (error) {
                 console.error(`   ❌ Error scraping ${link.text}:`, error);
-                allProductData.push({
-                    category: link.text,
-                    products: []
-                });
             }
         }
 
+        // Group products by category for summary (but keep flat structure for export)
+        const productsByCategory = allProducts.reduce((acc, product) => {
+            if (!acc[product.category]) {
+                acc[product.category] = [];
+            }
+            acc[product.category].push(product);
+            return acc;
+        }, {} as Record<string, ProductData[]>);
+
         // Summary
-        const totalProducts = allProductData.reduce((sum, category) => sum + category.products.length, 0);
-        const successfulCategories = allProductData.filter(category => category.products.length > 0).length;
+        const totalProducts = allProducts.length;
+        const successfulCategories = Object.keys(productsByCategory).length;
 
         console.log(`\n🎉 Scraping Complete!`);
         console.log(`📊 Total products scraped: ${totalProducts}`);
@@ -77,16 +80,16 @@ async function main() {
 
         // Show summary by category
         console.log(`\n📋 Products by category:`);
-        allProductData.forEach(category => {
-            console.log(`   ${category.category}: ${category.products.length} products`);
+        Object.entries(productsByCategory).forEach(([category, products]) => {
+            console.log(`   ${category}: ${products.length} products`);
         });
 
-        // Export data to files
+        // Export data to files (flat structure)
         if (totalProducts > 0) {
             console.log(`\n💾 Exporting data...`);
             try {
-                await exportToJSON(allProductData, 'oda-products');
-                await exportToCSV(allProductData, 'oda-products');
+                await exportToJSON(allProducts, 'oda-products');
+                await exportToCSV(allProducts, 'oda-products');
                 console.log(`✅ Data exported successfully!`);
             } catch (error) {
                 console.error(`❌ Export failed:`, error);
