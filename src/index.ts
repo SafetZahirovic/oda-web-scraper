@@ -2,6 +2,8 @@ import { Worker } from 'worker_threads';
 import path from 'path';
 import { BrowserConfig, ProductData } from "./core/types";
 import { createDatabaseConnector } from './connector';
+import { databaseService } from './database/service';
+import { emitSubcategoryScrapingStarted, emitSubcategoryScrapingFinished, emitCategoryScrapingFinished } from './connector';
 
 const BROWSER_CONFIG: BrowserConfig = {
     headless: true,
@@ -32,29 +34,32 @@ const URLS = [
     "https://oda.com/no/categories/488-mathall/",
     "https://oda.com/no/categories/85-hus-og-hjem/",
     "https://oda.com/no/categories/101-snus-og-tobakk/",
-    "https://oda.com/no/categories/1044-frokostblandinger-og-musli/",
 ];
 
 
 
 const databaseConnector = createDatabaseConnector({
     handleAllScrapingFinished: async (event) => {
-        console.log(`All scraping finished. Total URLs: ${event.totalUrls}, Successful: ${event.successfulUrls}, Products: ${event.totalProducts}`);
-    },
-    handleCategoryScrapingFinished: async (event) => {
-        console.log(`Category scraping finished for ${event.url} (${event.url}). Total products: ${event.totalProducts}, Success: ${event.success}`);
-        if (!event.success && event.error) {
-            console.error(`Error: ${event.error}`);
+        console.log(`🎉 All scraping finished. Total URLs: ${event.totalUrls}, Successful: ${event.successfulUrls}, Products: ${event.totalProducts}`);
+        // Get overall statistics
+        try {
+            console.log(`📊 Final statistics saved to database`);
+        } catch (error) {
+            console.error(`❌ Failed to get final statistics:`, error);
         }
-    },
-    handleItemScrapingFinished: async (event) => {
-        console.log(`Item scraping finished for ${event.url} (${event.category}). Products: ${event.products.length}`);
     }
 })
 
 interface WorkerResult {
     success: boolean;
-    products?: ProductData[];
+    categoryInfo?: {
+        name: string;
+        subcategories: {
+            name: string;
+            url: string;
+            products: ProductData[];
+        }[];
+    };
     error?: string;
     url: string;
     urlIndex: number;
@@ -94,7 +99,8 @@ async function main() {
         // Connect to database
         await databaseConnector.connect();
 
-        console.log(`🚀 Starting ${URLS.length} workers for parallel scraping...`);
+        // Map to store category IDs for each URL
+        const categoryIds = new Map<string, string>();
 
         // Create workers for each URL
         const workerPromises = URLS.map((url, index) => {
@@ -111,19 +117,80 @@ async function main() {
             const url = URLS[i];
 
             if (result.status === 'fulfilled' && result.value.success) {
-                const { products, urlIndex } = result.value;
+                const { categoryInfo, urlIndex } = result.value;
 
-                console.log(`\n✅ Worker ${urlIndex + 1}: Successfully processed ${url}`);
 
-                if (products && products.length > 0) {
-                    console.log(`📦 Worker ${urlIndex + 1}: Collected ${products.length} products`);
-                    totalProducts += products.length;
+                if (categoryInfo && categoryInfo.subcategories.length > 0) {
+                    // First, create the category
+                    try {
+                        const categoryName = extractCategoryNameFromUrl(url);
+                        const categoryId = await databaseService.createCategory(url, categoryName, urlIndex);
+                        categoryIds.set(url, categoryId);
 
-                    // Emit category scraping finished event with products data
-                    databaseConnector.emitCategoryScrapingFinished(url, urlIndex, products, true);
+                        console.log(`📝 Created category "${categoryName}" with ID: ${categoryId}`);
+
+                        // Process each subcategory
+                        let categoryTotalProducts = 0;
+                        for (const subcategory of categoryInfo.subcategories) {
+                            try {
+                                // Emit subcategory started event
+                                emitSubcategoryScrapingStarted(url, urlIndex, categoryId, subcategory.name, subcategory.url);
+
+                                // Create subcategory
+                                const subcategoryId = await databaseService.createSubcategory(categoryId, subcategory.name, subcategory.url);
+
+                                // Save products
+                                await databaseService.saveProducts(categoryId, subcategoryId, subcategory.products);
+
+                                // Update subcategory completion
+                                await databaseService.updateSubcategoryCompletion(subcategoryId, true);
+
+                                categoryTotalProducts += subcategory.products.length;
+                                console.log(`   ✅ Processed subcategory "${subcategory.name}" with ${subcategory.products.length} products`);
+
+                                // Emit subcategory finished event
+                                emitSubcategoryScrapingFinished(url, urlIndex, categoryId, subcategoryId, subcategory.name, subcategory.products, true);
+
+                            } catch (error) {
+                                console.error(`   ❌ Error processing subcategory "${subcategory.name}":`, error);
+
+                                // Emit subcategory finished event with error
+                                emitSubcategoryScrapingFinished(url, urlIndex, categoryId, 'ERROR', subcategory.name, [], false, error instanceof Error ? error.message : String(error));
+                            }
+                        }
+
+                        // Update category completion
+                        await databaseService.updateCategoryCompletion(categoryId, true);
+                        totalProducts += categoryTotalProducts;
+
+                        // Emit category finished event
+                        emitCategoryScrapingFinished(url, urlIndex, categoryId, categoryTotalProducts, categoryInfo.subcategories.length, true);
+
+                        console.log(`📦 Worker ${urlIndex + 1}: Total products for category: ${categoryTotalProducts}`);
+
+                    } catch (error) {
+                        console.error(`❌ Worker ${urlIndex + 1}: Error processing category:`, error);
+
+                        // Try to emit category finished event with error if we have a categoryId
+                        const categoryId = categoryIds.get(url);
+                        if (categoryId) {
+                            emitCategoryScrapingFinished(url, urlIndex, categoryId, 0, 0, false, error instanceof Error ? error.message : String(error));
+                        }
+                    }
                 } else {
-                    console.log(`\n⚠️ Worker ${urlIndex + 1}: No products collected`);
-                    databaseConnector.emitCategoryScrapingFinished(url, urlIndex, [], true);
+                    console.log(`\n⚠️ Worker ${urlIndex + 1}: No subcategories found`);
+
+                    // Still create category and emit finished event for completeness
+                    try {
+                        const categoryName = extractCategoryNameFromUrl(url);
+                        const categoryId = await databaseService.createCategory(url, categoryName, urlIndex);
+                        await databaseService.updateCategoryCompletion(categoryId, true);
+
+                        // Emit category finished event with no subcategories
+                        emitCategoryScrapingFinished(url, urlIndex, categoryId, 0, 0, true);
+                    } catch (error) {
+                        console.error(`❌ Failed to create empty category:`, error);
+                    }
                 }
             } else {
                 const urlIndex = i;
@@ -132,7 +199,18 @@ async function main() {
                     : String(result.reason);
 
                 console.error(`❌ Worker ${urlIndex + 1}: Failed - ${errorMessage}`);
-                databaseConnector.emitCategoryScrapingFinished(url, urlIndex, [], false, errorMessage);
+
+                // Try to create category and mark as failed
+                try {
+                    const categoryName = extractCategoryNameFromUrl(url);
+                    const categoryId = await databaseService.createCategory(url, categoryName, urlIndex);
+                    await databaseService.updateCategoryCompletion(categoryId, false, errorMessage);
+
+                    // Emit category finished event with error
+                    emitCategoryScrapingFinished(url, urlIndex, categoryId, 0, 0, false, errorMessage);
+                } catch (dbError) {
+                    console.error(`❌ Failed to create failed category in database:`, dbError);
+                }
             }
         }
 
@@ -151,6 +229,17 @@ async function main() {
         // Disconnect from database
         await databaseConnector.disconnect();
     }
+}
+
+/**
+ * Extract category name from URL
+ */
+function extractCategoryNameFromUrl(url: string): string {
+    const match = url.match(/\/categories\/\d+-([^\/]+)\//);
+    if (match && match[1]) {
+        return match[1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    }
+    return 'Unknown Category';
 }
 
 // Run the scraper

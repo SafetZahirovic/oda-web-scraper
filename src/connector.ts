@@ -1,5 +1,6 @@
 import { ProductData } from './core/types';
 import { EventEmitter } from "node:events"
+import { databaseService } from './database/service';
 
 /**
  * Global event emitter for database connector
@@ -10,10 +11,11 @@ const globalEventEmitter = new EventEmitter();
  * Event names for the database connector
  */
 export const CONNECTOR_EVENTS = {
-    CATEGORY_SCRAPING_STARTED: 'category_scraping_started',    // When a category starts being scraped
-    ITEM_SCRAPING_FINISHED: 'item_scraping_finished',          // When a single category is done
-    CATEGORY_SCRAPING_FINISHED: 'category_scraping_finished',  // When all categories for one URL are done
-    ALL_SCRAPING_FINISHED: 'all_scraping_finished'             // When everything is done
+    CATEGORY_SCRAPING_STARTED: 'category_scraping_started',      // When a main category (URL) starts
+    SUBCATEGORY_SCRAPING_STARTED: 'subcategory_scraping_started', // When a subcategory starts being scraped
+    SUBCATEGORY_SCRAPING_FINISHED: 'subcategory_scraping_finished', // When a single subcategory is done
+    CATEGORY_SCRAPING_FINISHED: 'category_scraping_finished',    // When all subcategories for one URL are done
+    ALL_SCRAPING_FINISHED: 'all_scraping_finished'               // When everything is done
 } as const;
 
 /**
@@ -22,22 +24,39 @@ export const CONNECTOR_EVENTS = {
 export type CategoryScrapingStartedEvent = {
     url: string;
     urlIndex: number;
-    category: string;
+    categoryName: string;
+    categoryId?: string;
     timestamp: Date;
 };
 
-export type ItemScrapingFinishedEvent = {
+export type SubcategoryScrapingStartedEvent = {
     url: string;
     urlIndex: number;
-    category: string;
+    categoryId: string;
+    subcategoryName: string;
+    subcategoryUrl: string;
+    subcategoryId?: string;
+    timestamp: Date;
+};
+
+export type SubcategoryScrapingFinishedEvent = {
+    url: string;
+    urlIndex: number;
+    categoryId: string;
+    subcategoryId: string;
+    subcategoryName: string;
     products: ProductData[];
+    success: boolean;
+    error?: string;
     timestamp: Date;
 };
 
 export type CategoryScrapingFinishedEvent = {
     url: string;
     urlIndex: number;
+    categoryId: string;
     totalProducts: number;
+    totalSubcategories: number;
     success: boolean;
     error?: string;
     timestamp: Date;
@@ -50,9 +69,19 @@ export type AllScrapingFinishedEvent = {
     timestamp: Date;
 };
 
+export type ItemScrapingFinishedEvent = {
+    url: string;
+    urlIndex: number;
+    category: string;
+    products: ProductData[];
+    timestamp: Date;
+};
+
 export type ConnectorEvents = {
+    handleCategoryScrapingStarted?: (event: CategoryScrapingStartedEvent) => Promise<void>;
+    handleSubcategoryScrapingStarted?: (event: SubcategoryScrapingStartedEvent) => Promise<void>;
+    handleSubcategoryScrapingFinished?: (event: SubcategoryScrapingFinishedEvent) => Promise<void>;
     handleCategoryScrapingFinished?: (event: CategoryScrapingFinishedEvent) => Promise<void>;
-    handleItemScrapingFinished?: (event: ItemScrapingFinishedEvent) => Promise<void>;
     handleAllScrapingFinished: (event: AllScrapingFinishedEvent) => Promise<void>;
 }
 
@@ -62,9 +91,10 @@ export type ConnectorEvents = {
 export type DatabaseConnector = {
     connect: () => Promise<void>;
     disconnect: () => Promise<void>;
-    emitCategoryScrapingStarted: (url: string, urlIndex: number, category: string) => void;
-    emitCategoryScrapingFinished: (url: string, urlIndex: number, products: ProductData[], success: boolean, error?: string) => void;
-    emitItemScrapingFinished: (url: string, urlIndex: number, category: string, products: ProductData[]) => void;
+    emitCategoryScrapingStarted: (url: string, urlIndex: number, categoryName: string, categoryId?: string) => void;
+    emitSubcategoryScrapingStarted: (url: string, urlIndex: number, categoryId: string, subcategoryName: string, subcategoryUrl: string, subcategoryId?: string) => void;
+    emitSubcategoryScrapingFinished: (url: string, urlIndex: number, categoryId: string, subcategoryId: string, subcategoryName: string, products: ProductData[], success: boolean, error?: string) => void;
+    emitCategoryScrapingFinished: (url: string, urlIndex: number, categoryId: string, totalProducts: number, totalSubcategories: number, success: boolean, error?: string) => void;
     emitAllScrapingFinished: (totalUrls: number, successfulUrls: number, totalProducts: number) => void;
     isDbConnected: () => boolean;
 }
@@ -72,16 +102,49 @@ export type DatabaseConnector = {
 /**
  * Global emit functions that can be used from anywhere (including workers)
  */
-export const emitCategoryScrapingStarted = (url: string, urlIndex: number, category: string): void => {
+export const emitCategoryScrapingStarted = (url: string, urlIndex: number, categoryName: string, categoryId?: string): void => {
     const event: CategoryScrapingStartedEvent = {
         url,
         urlIndex,
-        category,
+        categoryName,
+        categoryId,
         timestamp: new Date()
     };
 
     globalEventEmitter.emit(CONNECTOR_EVENTS.CATEGORY_SCRAPING_STARTED, event);
-    console.log(`🚀 Database Connector: Starting category "${category}" for URL ${urlIndex + 1}`);
+    console.log(`🚀 Database Connector: Starting category "${categoryName}" for URL ${urlIndex + 1}`);
+};
+
+export const emitSubcategoryScrapingStarted = (url: string, urlIndex: number, categoryId: string, subcategoryName: string, subcategoryUrl: string, subcategoryId?: string): void => {
+    const event: SubcategoryScrapingStartedEvent = {
+        url,
+        urlIndex,
+        categoryId,
+        subcategoryName,
+        subcategoryUrl,
+        subcategoryId,
+        timestamp: new Date()
+    };
+
+    globalEventEmitter.emit(CONNECTOR_EVENTS.SUBCATEGORY_SCRAPING_STARTED, event);
+    console.log(`🚀 Database Connector: Starting subcategory "${subcategoryName}" for category ${categoryId}`);
+};
+
+export const emitSubcategoryScrapingFinished = (url: string, urlIndex: number, categoryId: string, subcategoryId: string, subcategoryName: string, products: ProductData[], success: boolean, error?: string): void => {
+    const event: SubcategoryScrapingFinishedEvent = {
+        url,
+        urlIndex,
+        categoryId,
+        subcategoryId,
+        subcategoryName,
+        products,
+        success,
+        error,
+        timestamp: new Date()
+    };
+
+    globalEventEmitter.emit(CONNECTOR_EVENTS.SUBCATEGORY_SCRAPING_FINISHED, event);
+    console.log(`📦 Database Connector: Finished subcategory "${subcategoryName}" with ${products.length} products`);
 };
 
 export const emitItemScrapingFinished = (url: string, urlIndex: number, category: string, products: ProductData[]): void => {
@@ -93,14 +156,17 @@ export const emitItemScrapingFinished = (url: string, urlIndex: number, category
         timestamp: new Date()
     };
 
-    globalEventEmitter.emit(CONNECTOR_EVENTS.ITEM_SCRAPING_FINISHED, event);
+    // Note: This is kept for backwards compatibility but should use subcategory events instead
+    console.log(`📦 Database Connector: Legacy item scraping finished for ${category} with ${products.length} products`);
 };
 
-export const emitCategoryScrapingFinished = (url: string, urlIndex: number, products: ProductData[], success: boolean, error?: string): void => {
+export const emitCategoryScrapingFinished = (url: string, urlIndex: number, categoryId: string, totalProducts: number, totalSubcategories: number, success: boolean, error?: string): void => {
     const event: CategoryScrapingFinishedEvent = {
         url,
         urlIndex,
-        totalProducts: products?.length || 0,
+        categoryId,
+        totalProducts,
+        totalSubcategories,
         success,
         error,
         timestamp: new Date()
@@ -125,20 +191,27 @@ export const emitAllScrapingFinished = (totalUrls: number, successfulUrls: numbe
  * Factory function to create a database connector
  */
 export const createDatabaseConnector = (events: ConnectorEvents): DatabaseConnector => {
-    let isConnected = false;
+    let dbConnected = false;
 
     /**
      * Setup event handlers for database operations
      */
-    const setupEventHandlers = ({ handleCategoryScrapingFinished, handleItemScrapingFinished, handleAllScrapingFinished }: ConnectorEvents): void => {
+    const setupEventHandlers = ({ handleCategoryScrapingStarted, handleSubcategoryScrapingStarted, handleSubcategoryScrapingFinished, handleCategoryScrapingFinished, handleAllScrapingFinished }: ConnectorEvents): void => {
+        if (handleCategoryScrapingStarted) {
+            globalEventEmitter.on(CONNECTOR_EVENTS.CATEGORY_SCRAPING_STARTED, handleCategoryScrapingStarted.bind(globalEventEmitter));
+        }
+
+        if (handleSubcategoryScrapingStarted) {
+            globalEventEmitter.on(CONNECTOR_EVENTS.SUBCATEGORY_SCRAPING_STARTED, handleSubcategoryScrapingStarted.bind(globalEventEmitter));
+        }
+
+        if (handleSubcategoryScrapingFinished) {
+            globalEventEmitter.on(CONNECTOR_EVENTS.SUBCATEGORY_SCRAPING_FINISHED, handleSubcategoryScrapingFinished.bind(globalEventEmitter));
+        }
+
         if (handleCategoryScrapingFinished) {
             // Handle when a category (main URL) is finished (all items/subcategories done)
             globalEventEmitter.on(CONNECTOR_EVENTS.CATEGORY_SCRAPING_FINISHED, handleCategoryScrapingFinished.bind(globalEventEmitter));
-        }
-
-        if (handleItemScrapingFinished) {
-            // Handle when individual items/subcategories are scraped (for real-time processing)
-            globalEventEmitter.on(CONNECTOR_EVENTS.ITEM_SCRAPING_FINISHED, handleItemScrapingFinished.bind(globalEventEmitter));
         }
 
         globalEventEmitter.on(CONNECTOR_EVENTS.ALL_SCRAPING_FINISHED, handleAllScrapingFinished.bind(globalEventEmitter));
@@ -149,16 +222,19 @@ export const createDatabaseConnector = (events: ConnectorEvents): DatabaseConnec
 
     return {
         /**
-         * Connect to the database (placeholder for actual database connection)
+         * Connect to the database (actual database connection)
          */
         async connect(): Promise<void> {
             try {
                 console.log('🔗 Connecting to database...');
 
-                // TODO: Implement actual database connection logic here
-                // Example: await database.connect()
+                // Test database connection
+                const isConnected = await databaseService.testConnection();
+                if (!isConnected) {
+                    throw new Error('Database connection test failed');
+                }
 
-                isConnected = true;
+                dbConnected = true;
                 console.log('✅ Database connected successfully');
             } catch (error) {
                 console.error('❌ Failed to connect to database:', error);
@@ -173,10 +249,8 @@ export const createDatabaseConnector = (events: ConnectorEvents): DatabaseConnec
             try {
                 console.log('🔌 Disconnecting from database...');
 
-                // TODO: Implement actual database disconnection logic here
-                // Example: await database.disconnect()
-
-                isConnected = false;
+                // No explicit disconnection needed for Supabase client
+                dbConnected = false;
                 console.log('✅ Database disconnected successfully');
             } catch (error) {
                 console.error('❌ Failed to disconnect from database:', error);
@@ -187,22 +261,29 @@ export const createDatabaseConnector = (events: ConnectorEvents): DatabaseConnec
         /**
          * Handle when a category starts being scraped
          */
-        emitCategoryScrapingStarted(url: string, urlIndex: number, category: string): void {
-            emitCategoryScrapingStarted(url, urlIndex, category);
+        emitCategoryScrapingStarted(url: string, urlIndex: number, categoryName: string, categoryId?: string): void {
+            emitCategoryScrapingStarted(url, urlIndex, categoryName, categoryId);
         },
 
         /**
-         * Handle when a category (main URL) scraping is finished (all items/subcategories done)
+         * Handle when a subcategory starts being scraped
          */
-        emitCategoryScrapingFinished(url: string, urlIndex: number, products: ProductData[], success: boolean, error?: string): void {
-            emitCategoryScrapingFinished(url, urlIndex, products, success, error);
+        emitSubcategoryScrapingStarted(url: string, urlIndex: number, categoryId: string, subcategoryName: string, subcategoryUrl: string, subcategoryId?: string): void {
+            emitSubcategoryScrapingStarted(url, urlIndex, categoryId, subcategoryName, subcategoryUrl, subcategoryId);
         },
 
         /**
-         * Handle when an individual item/subcategory is scraped (for real-time processing)
+         * Handle when a subcategory scraping is finished
          */
-        emitItemScrapingFinished(url: string, urlIndex: number, category: string, products: ProductData[]): void {
-            emitItemScrapingFinished(url, urlIndex, category, products);
+        emitSubcategoryScrapingFinished(url: string, urlIndex: number, categoryId: string, subcategoryId: string, subcategoryName: string, products: ProductData[], success: boolean, error?: string): void {
+            emitSubcategoryScrapingFinished(url, urlIndex, categoryId, subcategoryId, subcategoryName, products, success, error);
+        },
+
+        /**
+         * Handle when a category (main URL) scraping is finished (all subcategories done)
+         */
+        emitCategoryScrapingFinished(url: string, urlIndex: number, categoryId: string, totalProducts: number, totalSubcategories: number, success: boolean, error?: string): void {
+            emitCategoryScrapingFinished(url, urlIndex, categoryId, totalProducts, totalSubcategories, success, error);
         },
 
         /**
@@ -216,7 +297,7 @@ export const createDatabaseConnector = (events: ConnectorEvents): DatabaseConnec
          * Get connection status
          */
         isDbConnected(): boolean {
-            return isConnected;
+            return dbConnected;
         }
     };
 };
@@ -226,7 +307,8 @@ export const createDatabaseConnector = (events: ConnectorEvents): DatabaseConnec
  */
 export const connector = {
     emitCategoryScrapingStarted,
-    emitItemScrapingFinished,
+    emitSubcategoryScrapingStarted,
+    emitSubcategoryScrapingFinished,
     emitCategoryScrapingFinished,
     emitAllScrapingFinished
 };

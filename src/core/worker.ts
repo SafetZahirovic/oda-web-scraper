@@ -3,7 +3,7 @@ import { BrowserManager, createPageNavigator } from './browser.js';
 import { extractSubcategoryLinks, scrapeAllProductsFromPage } from './scraper.js';
 import { BrowserConfig, ProductData } from './types.js';
 import { filterExcludedLinks } from './utils.js';
-import { emitCategoryScrapingStarted, emitItemScrapingFinished } from "../connector.js"
+import { emitCategoryScrapingStarted } from '../connector.js';
 
 
 type WorkerData = {
@@ -13,9 +13,32 @@ type WorkerData = {
     browserConfig: BrowserConfig;
 };
 
-async function scrapeUrl(data: WorkerData): Promise<ProductData[]> {
+/**
+ * Extract category name from URL
+ */
+function extractCategoryNameFromUrl(url: string): string {
+    const match = url.match(/\/categories\/\d+-([^\/]+)\//);
+    if (match && match[1]) {
+        return match[1].replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    }
+    return 'Unknown Category';
+}
+
+/**
+ * Clean subcategory name by removing the number at the end
+ * Example: "Grønsaker 140" -> "Grønsaker"
+ */
+function cleanSubcategoryName(name: string): string {
+    // Remove numbers and whitespace at the end of the string
+    return name.replace(/[0-9]/g, '').trim();
+}
+
+async function scrapeUrl(data: WorkerData): Promise<{ name: string; subcategories: { name: string; url: string; products: ProductData[] }[] }> {
     const { url, urlIndex, totalUrls, browserConfig } = data;
     const browserManager = new BrowserManager();
+
+    // Extract category name once at the beginning
+    const categoryName = extractCategoryNameFromUrl(url);
 
     try {
         console.log(`\n🚀 Worker ${urlIndex + 1}: Starting web scraper for URL ${urlIndex + 1}/${totalUrls}...`);
@@ -25,89 +48,72 @@ async function scrapeUrl(data: WorkerData): Promise<ProductData[]> {
         const navigator = createPageNavigator(page);
 
         // Navigate to the main category page
-        console.log(`📍 Worker ${urlIndex + 1}: Navigating to ${url}...`);
         await navigator.goto(url);
         await navigator.waitForTimeout(2000);
 
+        // Emit category started event
+        emitCategoryScrapingStarted(url, urlIndex, categoryName);
+
         // Extract subcategory links
-        console.log(`🔍 Worker ${urlIndex + 1}: Looking for choice chip buttons...`);
         const allLinks = await extractSubcategoryLinks(navigator);
-        console.log(`Worker ${urlIndex + 1}: Found ${allLinks.length} choice chip buttons`);
 
         // Filter out excluded links
         const subcategoryLinks = filterExcludedLinks(allLinks, ["Alle"]);
-        console.log(
-            `✅ Worker ${urlIndex + 1}: Found ${subcategoryLinks.length} subcategory links (excluding 'Alle'):`
-        );
-
-        subcategoryLinks.forEach((link, index) => {
-            console.log(`Worker ${urlIndex + 1}: ${index + 1}. ${link.text} -> ${link.href}`);
-        });
 
         // Scrape products from each subcategory page
-        const allProducts: ProductData[] = [];
+        const subcategories: { name: string; url: string; products: ProductData[] }[] = [];
 
         for (let i = 0; i < subcategoryLinks.length; i++) {
             const link = subcategoryLinks[i];
-            console.log(
-                `\n📖 Worker ${urlIndex + 1}: Scraping products from ${i + 1}/${subcategoryLinks.length}: ${link.text}`
-            );
-            console.log(`🔗 Worker ${urlIndex + 1}: URL: ${link.href}`);
+            const cleanName = cleanSubcategoryName(link.text);
 
             try {
-                // Emit category scraping started event
-                emitCategoryScrapingStarted(url, urlIndex, link.text);
-
                 // Scrape all products from this category (with pagination)
                 const products = await scrapeAllProductsFromPage(
                     navigator,
                     link.href,
                     5,
-                    link.text
+                    cleanName
                 ); // Max 5 pages per category
 
-                allProducts.push(...products);
+                subcategories.push({
+                    name: cleanName,
+                    url: link.href,
+                    products: products
+                });
 
                 console.log(
-                    `   ✅ Worker ${urlIndex + 1}: Scraped ${products.length} products from ${link.text}`
+                    `   ✅ Worker ${urlIndex + 1}: Scraped ${products.length} products from ${cleanName}`
                 );
 
-                // Emit item scraping finished event for real-time processing
-                emitItemScrapingFinished(url, urlIndex, link.text, products);
             } catch (error) {
-                console.error(`   ❌ Worker ${urlIndex + 1}: Error scraping ${link.text}:`, error);
+                console.error(`   ❌ Worker ${urlIndex + 1}: Error scraping ${cleanName}:`, error);
+                // Still add the subcategory but with empty products
+                subcategories.push({
+                    name: cleanName,
+                    url: link.href,
+                    products: []
+                });
             }
         }
 
-        // Group products by category for summary
-        const productsByCategory = allProducts.reduce((acc, product) => {
-            if (!acc[product.category]) {
-                acc[product.category] = [];
-            }
-            acc[product.category].push(product);
-            return acc;
-        }, {} as Record<string, ProductData[]>);
+        // Calculate totals for summary
+        const totalProducts = subcategories.reduce((sum, sub) => sum + sub.products.length, 0);
+        const successfulSubcategories = subcategories.filter(sub => sub.products.length > 0).length;
 
-        // Summary
-        const totalProducts = allProducts.length;
-        const successfulCategories = Object.keys(productsByCategory).length;
-
-        console.log(`\n🎉 Worker ${urlIndex + 1}: Scraping Complete for ${url}!`);
-        console.log(`📊 Worker ${urlIndex + 1}: Total products scraped: ${totalProducts}`);
-        console.log(
-            `📦 Worker ${urlIndex + 1}: Successful categories: ${successfulCategories}/${subcategoryLinks.length}`
-        );
-
-        // Show summary by category
-        console.log(`\n📋 Worker ${urlIndex + 1}: Products by category:`);
-        Object.entries(productsByCategory).forEach(([category, products]) => {
-            console.log(`   Worker ${urlIndex + 1}: ${category}: ${products.length} products`);
+        // Show summary by subcategory
+        console.log(`\n📋 Worker ${urlIndex + 1}: Products by subcategory:`);
+        subcategories.forEach(({ name, products }) => {
+            console.log(`   Worker ${urlIndex + 1}: ${name}: ${products.length} products`);
         });
 
         await browserManager.close();
         console.log(`🔒 Worker ${urlIndex + 1}: Browser closed`);
 
-        return allProducts;
+        return {
+            name: categoryName,
+            subcategories: subcategories
+        };
 
     } catch (error) {
         console.error(`❌ Worker ${urlIndex + 1}: Error occurred:`, error);
@@ -119,10 +125,10 @@ async function scrapeUrl(data: WorkerData): Promise<ProductData[]> {
 // Worker execution
 if (parentPort && workerData) {
     scrapeUrl(workerData)
-        .then((products) => {
+        .then((categoryInfo) => {
             parentPort!.postMessage({
                 success: true,
-                products,
+                categoryInfo,
                 url: workerData.url,
                 urlIndex: workerData.urlIndex
             });

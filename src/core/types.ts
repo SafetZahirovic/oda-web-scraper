@@ -30,3 +30,30 @@ export type ProductData = {
     discount: string | null;
     category: string;
 };
+
+/**
+ * Extended types for database integration
+ */
+export type CategoryInfo = {
+    id?: string;
+    name: string;
+    url: string;
+    urlIndex: number;
+    subcategoryLinks: SubcategoryLink[];
+};
+
+export type SubcategoryInfo = {
+    id?: string;
+    categoryId?: string;
+    name: string;
+    url: string;
+    products: ProductData[];
+};
+
+export type ProductDataExtended = ProductData & {
+    subcategoryId?: string;
+    categoryId?: string;
+    inStock?: boolean;
+    originalPrice?: string;
+    scrapedAt?: Date;
+};
