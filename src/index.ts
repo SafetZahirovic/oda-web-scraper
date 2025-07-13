@@ -1,7 +1,7 @@
 import { Worker } from 'worker_threads';
 import path from 'path';
-import { exportToCSV, exportToJSON } from "./export";
-import { BrowserConfig, ProductData } from "./types";
+import { BrowserConfig, ProductData } from "./core/types";
+import { createDatabaseConnector } from './connector';
 
 const BROWSER_CONFIG: BrowserConfig = {
     headless: true,
@@ -45,8 +45,8 @@ interface WorkerResult {
 
 function createWorker(url: string, urlIndex: number): Promise<WorkerResult> {
     return new Promise((resolve, reject) => {
-        // Use correct path to worker file
-        const workerPath = path.join(__dirname, 'worker.js');
+        // Use correct path to worker file in core folder
+        const workerPath = path.join(__dirname, 'core', 'worker.js');
         const worker = new Worker(workerPath, {
             workerData: {
                 url,
@@ -75,14 +75,18 @@ function createWorker(url: string, urlIndex: number): Promise<WorkerResult> {
 async function main() {
     try {
         console.log(`� Starting ${URLS.length} workers for parallel scraping...`);
+        console.log(`🚀 Starting ${URLS.length} workers for parallel scraping...`);
 
         // Create workers for each URL
-        const workerPromises = URLS.map((url, index) => createWorker(url, index));
+        const workerPromises = URLS.map((url, index) => {
+            return createWorker(url, index);
+        });
 
         // Wait for all workers to complete
         const results = await Promise.allSettled(workerPromises);
 
-        // Process results
+        // Process results and emit events
+        let totalProducts = 0;
         for (let i = 0; i < results.length; i++) {
             const result = results[i];
             const url = URLS[i];
@@ -93,32 +97,30 @@ async function main() {
                 console.log(`\n✅ Worker ${urlIndex + 1}: Successfully processed ${url}`);
 
                 if (products && products.length > 0) {
-                    console.log(`\n💾 Worker ${urlIndex + 1}: Exporting data...`);
-                    try {
-                        const urlSlug = url.split('/').slice(-2, -1)[0]; // Extract category ID from URL
-                        await exportToJSON(products, `oda-products-${urlSlug}`);
-                        await exportToCSV(products, `oda-products-${urlSlug}`);
-                        console.log(`✅ Worker ${urlIndex + 1}: Data exported successfully!`);
-                    } catch (error) {
-                        console.error(`❌ Worker ${urlIndex + 1}: Export failed:`, error);
-                    }
+                    console.log(`📦 Worker ${urlIndex + 1}: Collected ${products.length} products`);
+                    totalProducts += products.length;
+
+                    // Emit category scraping finished event with products data
                 } else {
-                    console.log(`\n⚠️ Worker ${urlIndex + 1}: No products to export`);
+                    console.log(`\n⚠️ Worker ${urlIndex + 1}: No products collected`);
                 }
             } else {
                 const urlIndex = i;
-                if (result.status === 'fulfilled') {
-                    console.error(`❌ Worker ${urlIndex + 1}: Failed - ${result.value.error}`);
-                } else {
-                    console.error(`❌ Worker ${urlIndex + 1}: Failed - ${result.reason}`);
-                }
+                const errorMessage = result.status === 'fulfilled'
+                    ? result.value.error
+                    : String(result.reason);
+
+                console.error(`❌ Worker ${urlIndex + 1}: Failed - ${errorMessage}`);
             }
         }
 
-        // Summary
+        // Summary and final event
         const successfulWorkers = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
         console.log(`\n🎉 All workers completed!`);
         console.log(`📊 Successful workers: ${successfulWorkers}/${URLS.length}`);
+        console.log(`📦 Total products collected: ${totalProducts}`);
+
+        // Emit all scraping finished event
 
     } catch (error) {
         console.error("❌ Error occurred:", error);

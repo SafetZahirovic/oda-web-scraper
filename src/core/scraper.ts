@@ -1,14 +1,14 @@
 import { Browser, Page, Locator } from 'playwright';
-import { SubcategoryLink, ProductData } from './types';
-import { normalizeUrl, isValidSubcategoryLink } from './utils';
+import { SubcategoryLink, ProductData } from './types.js';
+import { normalizeUrl, isValidSubcategoryLink } from './utils.js';
 
-export interface PageNavigator {
+export type PageNavigator = {
     goto(url: string): Promise<void>;
     waitForTimeout(ms: number): Promise<void>;
     locator(selector: string): Locator;
     click(selector: string): Promise<void>;
     waitForSelector(selector: string, options?: { timeout?: number }): Promise<void>;
-}
+};
 
 /**
  * Extracts subcategory links from choice chip elements

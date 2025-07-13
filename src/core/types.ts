@@ -1,25 +1,25 @@
-export interface SubcategoryLink {
+export type SubcategoryLink = {
     text: string;
     href: string;
-}
+};
 
-export interface BrowserConfig {
+export type BrowserConfig = {
     headless: boolean;
     viewport: {
         width: number;
         height: number;
     };
-}
+};
 
-export interface ScrapingResult {
+export type ScrapingResult = {
     url: string;
     title: string;
     heading: string;
     success: boolean;
     error?: string;
-}
+};
 
-export interface ProductData {
+export type ProductData = {
     name: string;
     price: string | null;
     brand: string | null;
@@ -29,4 +29,4 @@ export interface ProductData {
     pricePerKilo: string | null;
     discount: string | null;
     category: string;
-}
+};

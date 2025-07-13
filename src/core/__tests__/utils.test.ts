@@ -5,7 +5,7 @@ import {
     createSafeFilename,
     isValidSubcategoryLink
 } from '../utils.js';
-import { SubcategoryLink } from '../types.js';
+import { SubcategoryLink } from '../types';
 
 describe('normalizeUrl', () => {
     it('should return absolute URL as-is', () => {

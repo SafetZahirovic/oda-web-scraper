@@ -1,15 +1,17 @@
 import { parentPort, workerData } from 'worker_threads';
-import { BrowserManager, createPageNavigator } from './browser';
-import { extractSubcategoryLinks, scrapeAllProductsFromPage } from './scraper';
-import { filterExcludedLinks } from './utils';
-import { BrowserConfig, ProductData } from './types';
+import { BrowserManager, createPageNavigator } from './browser.js';
+import { extractSubcategoryLinks, scrapeAllProductsFromPage } from './scraper.js';
+import { BrowserConfig, ProductData } from './types.js';
+import { filterExcludedLinks } from './utils.js';
+import { emitCategoryScrapingStarted, emitItemScrapingFinished } from "../connector.js"
 
-interface WorkerData {
+
+type WorkerData = {
     url: string;
     urlIndex: number;
     totalUrls: number;
     browserConfig: BrowserConfig;
-}
+};
 
 async function scrapeUrl(data: WorkerData): Promise<ProductData[]> {
     const { url, urlIndex, totalUrls, browserConfig } = data;
@@ -53,6 +55,9 @@ async function scrapeUrl(data: WorkerData): Promise<ProductData[]> {
             console.log(`🔗 Worker ${urlIndex + 1}: URL: ${link.href}`);
 
             try {
+                // Emit category scraping started event
+                emitCategoryScrapingStarted(url, urlIndex, link.text);
+
                 // Scrape all products from this category (with pagination)
                 const products = await scrapeAllProductsFromPage(
                     navigator,
@@ -66,6 +71,9 @@ async function scrapeUrl(data: WorkerData): Promise<ProductData[]> {
                 console.log(
                     `   ✅ Worker ${urlIndex + 1}: Scraped ${products.length} products from ${link.text}`
                 );
+
+                // Emit item scraping finished event for real-time processing
+                emitItemScrapingFinished(url, urlIndex, link.text, products);
             } catch (error) {
                 console.error(`   ❌ Worker ${urlIndex + 1}: Error scraping ${link.text}:`, error);
             }

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { extractSubcategoryLinks, extractProductData, loadMoreProducts } from '../scraper.js';
-import { PageNavigator } from '../scraper.js';
+import { PageNavigator } from '../scraper';
 
 // Mock PageNavigator for testing
 function createMockPageNavigator(): PageNavigator {

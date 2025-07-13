@@ -1,4 +1,4 @@
-import { SubcategoryLink } from './types.js';
+import { SubcategoryLink } from './types';
 
 /**
  * Normalizes a URL by prepending the base URL if it's relative
