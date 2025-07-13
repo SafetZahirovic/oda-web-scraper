@@ -3,7 +3,7 @@ import path from 'path';
 import { BrowserConfig, ProductData } from "./core/types";
 import { createDatabaseConnector } from './connector';
 import { databaseService } from './database/service';
-import { emitSubcategoryScrapingStarted, emitSubcategoryScrapingFinished, emitCategoryScrapingFinished } from './connector';
+import { emitCategoryScrapingStarted, emitSubcategoryScrapingStarted, emitSubcategoryScrapingFinished, emitCategoryScrapingFinished, emitAllScrapingFinished } from './connector';
 
 const BROWSER_CONFIG: BrowserConfig = {
     headless: true,
@@ -39,14 +39,25 @@ const URLS = [
 
 
 const databaseConnector = createDatabaseConnector({
+    handleCategoryScrapingStarted: async (event) => {
+        console.log(`🚀 Category started: ${event.categoryName} (${event.url})`);
+        // Event handler only logs - database operations handled in main loop
+    },
+    handleSubcategoryScrapingStarted: async (event) => {
+        console.log(`🚀 Subcategory started: ${event.subcategoryName} for category ${event.categoryId}`);
+        // Event handler only logs - database operations handled in main loop
+    },
+    handleSubcategoryScrapingFinished: async (event) => {
+        console.log(`✅ Subcategory finished: ${event.subcategoryName} with ${event.products.length} products`);
+        // Event handler only logs - database operations handled in main loop
+    },
+    handleCategoryScrapingFinished: async (event) => {
+        console.log(`✅ Category finished: ${event.url} with ${event.totalProducts} products across ${event.totalSubcategories} subcategories`);
+        // Event handler only logs - database operations handled in main loop
+    },
     handleAllScrapingFinished: async (event) => {
         console.log(`🎉 All scraping finished. Total URLs: ${event.totalUrls}, Successful: ${event.successfulUrls}, Products: ${event.totalProducts}`);
-        // Get overall statistics
-        try {
-            console.log(`📊 Final statistics saved to database`);
-        } catch (error) {
-            console.error(`❌ Failed to get final statistics:`, error);
-        }
+        // Event handler only logs - database operations handled in main loop
     }
 })
 
@@ -121,13 +132,17 @@ async function main() {
 
 
                 if (categoryInfo && categoryInfo.subcategories.length > 0) {
-                    // First, create the category
                     try {
                         const categoryName = extractCategoryNameFromUrl(url);
+
+                        // Emit category started event first
+                        emitCategoryScrapingStarted(url, urlIndex, categoryName);
+
+                        // Create category in database (upsert handles duplicates)
                         const categoryId = await databaseService.createCategory(url, categoryName, urlIndex);
                         categoryIds.set(url, categoryId);
 
-                        console.log(`📝 Created category "${categoryName}" with ID: ${categoryId}`);
+                        console.log(`📝 Created/updated category "${categoryName}" with ID: ${categoryId}`);
 
                         // Process each subcategory
                         let categoryTotalProducts = 0;
@@ -136,10 +151,10 @@ async function main() {
                                 // Emit subcategory started event
                                 emitSubcategoryScrapingStarted(url, urlIndex, categoryId, subcategory.name, subcategory.url);
 
-                                // Create subcategory
+                                // Create subcategory (upsert handles duplicates)
                                 const subcategoryId = await databaseService.createSubcategory(categoryId, subcategory.name, subcategory.url);
 
-                                // Save products
+                                // Save products (upsert handles duplicates)
                                 await databaseService.saveProducts(categoryId, subcategoryId, subcategory.products);
 
                                 // Update subcategory completion
@@ -180,9 +195,14 @@ async function main() {
                 } else {
                     console.log(`\n⚠️ Worker ${urlIndex + 1}: No subcategories found`);
 
-                    // Still create category and emit finished event for completeness
+                    // Still create category and emit events for completeness
                     try {
                         const categoryName = extractCategoryNameFromUrl(url);
+
+                        // Emit category started event
+                        emitCategoryScrapingStarted(url, urlIndex, categoryName);
+
+                        // Create category in database
                         const categoryId = await databaseService.createCategory(url, categoryName, urlIndex);
                         await databaseService.updateCategoryCompletion(categoryId, true);
 
@@ -203,6 +223,11 @@ async function main() {
                 // Try to create category and mark as failed
                 try {
                     const categoryName = extractCategoryNameFromUrl(url);
+
+                    // Emit category started event
+                    emitCategoryScrapingStarted(url, urlIndex, categoryName);
+
+                    // Create category and mark as failed
                     const categoryId = await databaseService.createCategory(url, categoryName, urlIndex);
                     await databaseService.updateCategoryCompletion(categoryId, false, errorMessage);
 
@@ -221,7 +246,7 @@ async function main() {
         console.log(`📦 Total products collected: ${totalProducts}`);
 
         // Emit all scraping finished event
-        databaseConnector.emitAllScrapingFinished(URLS.length, successfulWorkers, totalProducts);
+        emitAllScrapingFinished(URLS.length, successfulWorkers, totalProducts);
 
     } catch (error) {
         console.error("❌ Error occurred:", error);

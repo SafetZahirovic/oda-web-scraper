@@ -82,7 +82,7 @@ export type ConnectorEvents = {
     handleSubcategoryScrapingStarted?: (event: SubcategoryScrapingStartedEvent) => Promise<void>;
     handleSubcategoryScrapingFinished?: (event: SubcategoryScrapingFinishedEvent) => Promise<void>;
     handleCategoryScrapingFinished?: (event: CategoryScrapingFinishedEvent) => Promise<void>;
-    handleAllScrapingFinished: (event: AllScrapingFinishedEvent) => Promise<void>;
+    handleAllScrapingFinished?: (event: AllScrapingFinishedEvent) => Promise<void>;
 }
 
 /**
@@ -111,8 +111,8 @@ export const emitCategoryScrapingStarted = (url: string, urlIndex: number, categ
         timestamp: new Date()
     };
 
-    globalEventEmitter.emit(CONNECTOR_EVENTS.CATEGORY_SCRAPING_STARTED, event);
     console.log(`🚀 Database Connector: Starting category "${categoryName}" for URL ${urlIndex + 1}`);
+    globalEventEmitter.emit(CONNECTOR_EVENTS.CATEGORY_SCRAPING_STARTED, event);
 };
 
 export const emitSubcategoryScrapingStarted = (url: string, urlIndex: number, categoryId: string, subcategoryName: string, subcategoryUrl: string, subcategoryId?: string): void => {
@@ -214,7 +214,10 @@ export const createDatabaseConnector = (events: ConnectorEvents): DatabaseConnec
             globalEventEmitter.on(CONNECTOR_EVENTS.CATEGORY_SCRAPING_FINISHED, handleCategoryScrapingFinished.bind(globalEventEmitter));
         }
 
-        globalEventEmitter.on(CONNECTOR_EVENTS.ALL_SCRAPING_FINISHED, handleAllScrapingFinished.bind(globalEventEmitter));
+        if (handleAllScrapingFinished) {
+            // Handle when all scraping is finished completely
+            globalEventEmitter.on(CONNECTOR_EVENTS.ALL_SCRAPING_FINISHED, handleAllScrapingFinished.bind(globalEventEmitter));
+        }
     };
 
     // Setup handlers
