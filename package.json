@@ -1,0 +1,29 @@
+{
+  "name": "oda-web-scraper",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "dev:watch": "nodemon --exec ts-node src/index.ts",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:ui": "vitest --ui",
+    "install-browsers": "npx playwright install"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.5",
+    "@vitest/ui": "^2.1.8",
+    "nodemon": "^3.1.7",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "A simple web scraper built with Playwright and TypeScript"
+}
