@@ -5,17 +5,18 @@
   "scripts": {
     "build": "tsc",
     "start": "npm run build && node dist/index.js",
-    "dev": "npm run build && node dist/index.js",
+    "dev": "npm run build && node --env-file=.env dist/index.js",
     "dev:ts": "ts-node src/index.ts",
     "dev:watch": "nodemon --exec ts-node src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest --watch",
     "test:ui": "vitest --ui",
-    "demo": "node demo-workers.js",
-    "install-browsers": "npx playwright install"
+    "install-browsers": "npx playwright install",
+    "supabase:start": "npx supabase start -x vector"
   },
   "dependencies": {
-    "playwright": "^1.48.0"
+    "playwright": "^1.48.0",
+    "@supabase/supabase-js": "^2.45.0"
   },
   "devDependencies": {
     "@types/node": "^22.5.5",
