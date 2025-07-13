@@ -5,11 +5,13 @@
   "scripts": {
     "build": "tsc",
     "start": "npm run build && node dist/index.js",
-    "dev": "ts-node src/index.ts",
+    "dev": "npm run build && node dist/index.js",
+    "dev:ts": "ts-node src/index.ts",
     "dev:watch": "nodemon --exec ts-node src/index.ts",
-    "test": "vitest",
+    "test": "vitest run",
     "test:watch": "vitest --watch",
     "test:ui": "vitest --ui",
+    "demo": "node demo-workers.js",
     "install-browsers": "npx playwright install"
   },
   "dependencies": {
